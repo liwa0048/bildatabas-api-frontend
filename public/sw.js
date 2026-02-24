@@ -1,5 +1,5 @@
-var CACHE_STATIC_NAME = "static-v3";
-var CACHE_DYNAMIC_NAME = "dynamic-v2";
+var CACHE_STATIC_NAME = "static-v4";
+var CACHE_DYNAMIC_NAME = "dynamic-v3";
 
 self.addEventListener("install", function (event) {
   console.log("[Service Worker] Installerar Service Worker", event);
@@ -34,57 +34,63 @@ self.addEventListener("activate", function (event) {
             console.log("[Service Worker] Tar bort gammal cache", key);
             return caches.delete(key);
           }
+          return Promise.resolve();
         }),
       );
     }),
   );
 });
+
 self.addEventListener("fetch", function (event) {
   if (event.request.method !== "GET") return;
+
   const url = new URL(event.request.url);
   if (url.protocol !== "http:" && url.protocol !== "https:") return;
+
   if (url.pathname.includes("/bilar")) {
     event.respondWith(
-      (async function () {
-        try {
-          const res = await fetch(event.request);
+      fetch(event.request)
+        .then(function (res) {
+          if (!res.ok) return res;
 
-          const cache = await caches.open(CACHE_DYNAMIC_NAME);
-          cache.put(event.request, res.clone());
-
-          return res;
-        } catch (error) {
-          const cached = await caches.match(event.request, {
-            ignoreSearch: true,
+          return caches.open(CACHE_DYNAMIC_NAME).then(function (cache) {
+            cache.put(event.request, res.clone());
+            return res;
           });
-          if (cached) return cached;
+        })
+        .catch(function () {
+          return caches
+            .match(event.request, { ignoreSearch: true })
+            .then(function (cached) {
+              if (cached) return cached;
 
-          return new Response(JSON.stringify([]), {
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-      })(),
+              return new Response(JSON.stringify([]), {
+                headers: { "Content-Type": "application/json" },
+              });
+            });
+        }),
     );
     return;
   }
 
   event.respondWith(
-    (async function () {
-      const cachedResponse = await caches.match(event.request, {
-        ignoreSearch: true,
-      });
-      if (cachedResponse) return cachedResponse;
+    caches
+      .match(event.request, { ignoreSearch: true })
+      .then(function (cachedResponse) {
+        if (cachedResponse) return cachedResponse;
 
-      try {
-        const res = await fetch(event.request);
+        return fetch(event.request)
+          .then(function (res) {
+            if (!res.ok) return res;
 
-        const cache = await caches.open(CACHE_DYNAMIC_NAME);
-        cache.put(event.request, res.clone());
-
-        return res;
-      } catch (error) {
-        return Response.error();
-      }
-    })(),
+            return caches.open(CACHE_DYNAMIC_NAME).then(function (cache) {
+              cache.put(event.request, res.clone());
+              return res;
+            });
+          })
+          .catch(function () {
+            return Response.error();
+          });
+      }),
   );
 });
